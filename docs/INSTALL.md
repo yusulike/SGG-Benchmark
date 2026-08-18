@@ -24,6 +24,10 @@ What the installer does
 - Installs Ultralytics CLIP, ONNX tooling, and attempts `onnxruntime-gpu` (falls back to CPU `onnxruntime`).
 - Attempts to install `tensorrt` via `pip` and prints manual install instructions if that fails.
 
+Note on Ultralytics
+- Use the **official** [ultralytics](https://github.com/ultralytics/ultralytics) package (`>=8.3.100`, see `requirements.txt`).
+- Community YOLO12 forks (e.g. [`sunsmarterjie/yolov12`](https://github.com/sunsmarterjie/yolov12), pinned at 8.3.63) are **not compatible**: they lack YOLOE backbones, use different model YAML names (`yolov12.yaml` instead of `yolo12m.yaml`), and miss NMS APIs the codebase relies on.
+
 Activating the environment
 
 ```bash

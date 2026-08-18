@@ -12,7 +12,9 @@ pycocotools
 h5py
 networkx
 sentence-transformers
-ultralytics
+# official ultralytics release only (community yolov12 forks are 8.3.63-based and incompatible);
+# >=8.3.100 required for YOLOE backbones and native YOLO12 support
+ultralytics>=8.3.100
 dill
 calflops
 datasets

@@ -51,53 +51,55 @@ from sgg_benchmark.utils.miscellaneous import mkdir, set_seed
 
 
 def find_config_file(checkpoint_dir):
-    """Find the config.yaml file in checkpoint directory"""
+    """Find the config file in a checkpoint directory (also searches one level deep)"""
     checkpoint_dir = Path(checkpoint_dir)
-    
-    # Look for config.yaml or hydra config
-    config_candidates = [
+
+    # Direct match first, then one level deep (e.g. HF download layout: <run-dir>/yolo12m/config.yml)
+    candidates = [
         checkpoint_dir / "config.yaml",
+        checkpoint_dir / "config.yml",
         checkpoint_dir / "hydra_config.yaml",
         checkpoint_dir / ".hydra" / "config.yaml",
     ]
-    
-    for config_path in config_candidates:
+    candidates += sorted(checkpoint_dir.glob("*/config.yaml")) + sorted(checkpoint_dir.glob("*/config.yml"))
+
+    for config_path in candidates:
         if config_path.exists():
             print(f"Found config at: {config_path}")
             return str(config_path)
-    
+
     raise FileNotFoundError(
-        f"Could not find config.yaml in {checkpoint_dir}. "
-        f"Looked in: {[str(p) for p in config_candidates]}"
+        f"Could not find config in {checkpoint_dir}. "
+        f"Looked in: {[str(p) for p in candidates]}"
     )
 
 
 def find_checkpoint_file(checkpoint_dir):
-    """Find the best or final checkpoint in directory"""
+    """Find the best or final checkpoint in directory (also searches one level deep)"""
     checkpoint_dir = Path(checkpoint_dir)
-    
+
     # Priority order: best > final > latest epoch
-    checkpoint_candidates = [
-        checkpoint_dir / "model_best.pth",
-        checkpoint_dir / "model_final.pth",
-    ]
-    
+    names = ["model_best.pth", "model_final.pth", "best_model.pth"]
+    candidates = [checkpoint_dir / n for n in names]
+    candidates += sorted(p for n in names for p in checkpoint_dir.glob(f"*/{n}"))
+
     # Check for explicit checkpoint files
-    for ckpt in checkpoint_candidates:
+    for ckpt in candidates:
         if ckpt.exists():
             print(f"Found checkpoint: {ckpt}")
             return str(ckpt)
-    
+
     # Look for epoch checkpoints and use the latest
     epoch_ckpts = sorted(checkpoint_dir.glob("model_epoch_*.pth"))
+    epoch_ckpts += sorted(checkpoint_dir.glob("*/model_epoch_*.pth"))
     if epoch_ckpts:
         latest = epoch_ckpts[-1]
         print(f"Found latest epoch checkpoint: {latest}")
         return str(latest)
-    
+
     raise FileNotFoundError(
         f"Could not find any checkpoint in {checkpoint_dir}. "
-        f"Looked for: model_best.pth, model_final.pth, model_epoch_*.pth"
+        f"Looked for: {', '.join(names)}, model_epoch_*.pth (direct or one level deep)"
     )
 
 
@@ -145,10 +147,15 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate SGG Model")
     
     # Checkpoint specification (provide one of these)
+    parser.add_argument("--run-dir", type=str,
+                        help="Run directory containing checkpoint and config, "
+                             "same as --checkpoint-dir (also searches one level deep, "
+                             "e.g. after downloading weights from the HuggingFace hub)")
     parser.add_argument("--checkpoint-dir", type=str,
                         help="Directory containing checkpoint and config (auto-detects best/final)")
     parser.add_argument("--checkpoint", type=str,
-                        help="Specific checkpoint file path")
+                        help="Specific checkpoint file path (relative paths are also "
+                             "tried against the run/checkpoint directory)")
     parser.add_argument("--config-file", type=str,
                         help="Config file (if not in checkpoint dir)")
     
@@ -185,24 +192,35 @@ def main():
     
     # ==================== Load Config and Checkpoint ====================
     
-    # Determine checkpoint and config paths
-    if args.checkpoint_dir:
-        checkpoint_dir = Path(args.checkpoint_dir)
+    # Determine checkpoint and config paths (--run-dir is an alias of --checkpoint-dir)
+    run_dir = args.run_dir or args.checkpoint_dir
+    if run_dir:
+        checkpoint_dir = Path(run_dir)
         if not checkpoint_dir.exists():
             raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
-        
-        checkpoint_path = args.checkpoint or find_checkpoint_file(checkpoint_dir)
+
+        if args.checkpoint:
+            checkpoint_path = args.checkpoint
+            if not Path(checkpoint_path).exists():
+                # relative --checkpoint refers to the run directory (as documented in the README)
+                candidate = checkpoint_dir / args.checkpoint
+                if candidate.exists():
+                    checkpoint_path = str(candidate)
+                else:
+                    raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        else:
+            checkpoint_path = find_checkpoint_file(checkpoint_dir)
         config_file = args.config_file or find_config_file(checkpoint_dir)
     elif args.checkpoint:
         checkpoint_path = args.checkpoint
         if not Path(checkpoint_path).exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-        
+
         # Try to find config in parent directory
         checkpoint_dir = Path(checkpoint_path).parent
         config_file = args.config_file or find_config_file(checkpoint_dir)
     else:
-        raise ValueError("Must provide either --checkpoint-dir or --checkpoint")
+        raise ValueError("Must provide one of --run-dir, --checkpoint-dir or --checkpoint")
     
     print("=" * 80)
     print("EVALUATION SETUP")

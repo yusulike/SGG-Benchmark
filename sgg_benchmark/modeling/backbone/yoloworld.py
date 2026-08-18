@@ -3,9 +3,10 @@ import torch.nn.functional as F
 from ultralytics.nn.tasks import WorldModel
 from sgg_benchmark.data.transforms import LetterBox
 
-from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.utils.patches import torch_load
 from ultralytics.utils import ops
 from ultralytics.engine.results import Results
+from .yolo_nms import non_max_suppression
 
 from sgg_benchmark.utils.txt_embeddings import obj_edge_vectors
 
@@ -76,7 +77,8 @@ class YoloWorldModel(WorldModel):
             task (str | None): model task
         """
 
-        weights, _ = load_checkpoint(weights_path)
+        ckpt = torch_load(weights_path, map_location="cpu")
+        weights = (ckpt.get("ema") or ckpt["model"]).float() if isinstance(ckpt, dict) else ckpt
 
         if weights:
             super().load(weights)
@@ -136,7 +138,7 @@ class YoloWorldModel(WorldModel):
     
     def postprocess(self, preds, image_sizes):
         """Post-processes predictions and returns a list of Results objects."""
-        preds, indices = ops.non_max_suppression(
+        preds, indices = non_max_suppression(
             preds,
             nc=self.nc,
             conf_thres=self.conf_thres,

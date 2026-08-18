@@ -2,9 +2,10 @@ import torch
 from ultralytics.nn.tasks import YOLOEModel
 from ultralytics.nn.modules import YOLOESegment
 
-from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.utils.patches import torch_load
 from ultralytics.utils import ops
 from ultralytics.utils.plotting import feature_visualization
+from .yolo_nms import non_max_suppression
 from pathlib import Path
 
 
@@ -95,7 +96,8 @@ class YOLOEDetectionModel(YOLOEModel):
             task (str | None): model task
         """
 
-        weights, _ = load_checkpoint(weights_path)
+        ckpt = torch_load(weights_path, map_location="cpu")
+        weights = (ckpt.get("ema") or ckpt["model"]).float() if isinstance(ckpt, dict) else ckpt
 
         if weights:
             super().load(weights)
@@ -105,7 +107,7 @@ class YOLOEDetectionModel(YOLOEModel):
     def postprocess(self, preds, image_sizes):
         """Post-processes predictions and returns a list of Results objects."""
 
-        preds, indices = ops.non_max_suppression(
+        preds, indices = non_max_suppression(
             preds,
             nc=self.nc,
             conf_thres=self.conf_thres,

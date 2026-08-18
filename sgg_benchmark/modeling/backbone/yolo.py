@@ -1,9 +1,12 @@
 import torch
 from ultralytics.nn.tasks import DetectionModel
 
-from ultralytics.nn.tasks import load_checkpoint
-from ultralytics.utils import nms, ops
+# from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.nn.tasks import DetectionModel
+from ultralytics.utils.patches import torch_load
+
 from ultralytics.utils.plotting import feature_visualization
+from .yolo_nms import non_max_suppression
 from pathlib import Path
 from omegaconf import DictConfig
 from ultralytics.nn.modules.head import Detect as _Detect
@@ -17,13 +20,23 @@ class YoloModel(DetectionModel):
             verbose = False
         super().__init__(yolo_cfg, nc=nc, verbose=True)
 
-        # monkey patch for end2end, should be fixed in future versions of ultralytics
-        def _patched_postprocess(self_detect, preds):
-            boxes, scores = preds.split([4, self_detect.nc], dim=-1)
-            scores, conf, idx = self_detect.get_topk_index(scores, self_detect.max_det)
-            boxes = boxes.gather(dim=1, index=idx.repeat(1, 1, 4))
-            # idx: [B, max_det, 1] — original flat anchor index in [0, N_anchors)
-            return torch.cat([boxes, scores, conf, idx.float()], dim=-1)  # [B, max_det, 7]
+        # monkey patch for end2end: ultralytics' Detect.postprocess drops the
+        # anchor index, which we need as feat_idx for feature lookup.  Signature
+        # matches ultralytics >= 8.3.2xx: postprocess(preds, max_det, nc).
+        def _patched_postprocess(self_detect, preds, max_det, nc):
+            # preds: [B, N, 4+nc], boxes in xyxy (end2end decode skips xywh)
+            n_anchors = preds.shape[1]
+            boxes, scores = preds.split([4, nc], dim=-1)
+            k = min(max_det, n_anchors * nc)
+            flat_scores, flat_idx = scores.flatten(1).topk(k)  # [B, k]
+            # flat_idx = anchor * nc + cls — recover the original flat anchor index
+            anchor_idx = flat_idx // nc
+            cls_idx = flat_idx % nc
+            top_boxes = boxes.gather(dim=1, index=anchor_idx.unsqueeze(-1).repeat(1, 1, 4))
+            return torch.cat(
+                [top_boxes, flat_scores.unsqueeze(-1), cls_idx.float().unsqueeze(-1), anchor_idx.float().unsqueeze(-1)],
+                dim=-1,
+            )  # [B, k, 7]: xyxy, score, cls, anchor_idx
 
         # Apply only to the detection head instance
         head = self.model[-1]  # last module is always the Detect head
@@ -130,7 +143,9 @@ class YoloModel(DetectionModel):
             task (str | None): model task
         """
 
-        weights, _ = load_checkpoint(weights_path)
+        # weights, _ = load_checkpoint(weights_path)
+        ckpt = torch_load(weights_path, map_location=self.device)
+        weights = (ckpt.get("ema") or ckpt["model"]).float() if isinstance(ckpt, dict) else ckpt
 
         if weights:
             super().load(weights)
@@ -148,7 +163,7 @@ class YoloModel(DetectionModel):
             indices = [p[:, 6].long() for p in preds]
             preds   = [p[:, :6] for p in preds]   # drop feat_idx from box tensor
         else:
-            preds, indices = nms.non_max_suppression(
+            preds, indices = non_max_suppression(
                 preds,
                 nc=self.nc,
                 conf_thres=self.conf_thres,

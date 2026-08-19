@@ -42,16 +42,39 @@ CATEGORIES = [
 REL_CATEGORIES = [{"id": 1, "name": "wearing"}]
 
 PERSON, HELMET, VEST = 0, 1, 2
+TARGET_NAMES = {PERSON: "person", HELMET: "helmet", VEST: "safety-vest"}
+# accepted --class-map target names (aliases included)
+TARGET_ALIASES = {"person": PERSON, "helmet": HELMET, "vest": VEST, "safety-vest": VEST}
 
 
-def parse_yolo_labels(txt_path: Path, img_w: int, img_h: int):
-    """YOLO txt (cls cx cy w h, normalized) -> list of [x, y, w, h] absolute + cls."""
+def parse_class_map(pairs):
+    """['3:person', '0:helmet', '4:vest'] -> {3: 0, 0: 1, 4: 2} (src id -> target id)."""
+    mapping = {}
+    for p in pairs:
+        src, name = p.split(":", 1)
+        name = name.strip().lower()
+        if name not in TARGET_ALIASES:
+            raise ValueError(f"class-map target must be one of {sorted(TARGET_ALIASES)}, got '{name}'")
+        mapping[int(src)] = TARGET_ALIASES[name]
+    return mapping
+
+
+def parse_yolo_labels(txt_path: Path, img_w: int, img_h: int, class_map=None):
+    """YOLO txt (cls cx cy w h, normalized) -> boxes in absolute xywh.
+
+    When `class_map` is given (src id -> target id), unmapped classes are
+    dropped and kept classes are renumbered.
+    """
     boxes = []
     for line in txt_path.read_text().splitlines():
         parts = line.split()
         if len(parts) < 5:
             continue
         cls = int(parts[0])
+        if class_map is not None:
+            if cls not in class_map:
+                continue
+            cls = class_map[cls]
         cx, cy, w, h = (float(v) for v in parts[1:5])
         boxes.append({
             "cls": cls,
@@ -61,6 +84,7 @@ def parse_yolo_labels(txt_path: Path, img_w: int, img_h: int):
                 min(w * img_w, img_w),
                 min(h * img_h, img_h),
             ],
+            "raw": (parts[1], parts[2], parts[3], parts[4]),
         })
     return boxes
 
@@ -126,6 +150,48 @@ def synthesize_relations(boxes, helmet_min=0.5, vest_min=0.6, head_expand=0.05):
     return pairs
 
 
+def emit_yolo(items_by_split, out_dir: Path, class_map):
+    """Write a cleaned YOLO-format dataset (remapped classes, unmapped dropped)
+    plus data.yaml — ready for ultralytics backbone fine-tuning."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    split_names = []
+    for split, items in items_by_split.items():
+        if not items:
+            continue
+        split_names.append(split)
+        (out_dir / split / "images").mkdir(parents=True, exist_ok=True)
+        (out_dir / split / "labels").mkdir(parents=True, exist_ok=True)
+        n_kept = 0
+        for img_path, txt_path in items:
+            shutil.copy2(img_path, out_dir / split / "images" / img_path.name)
+            lines = []
+            for line in txt_path.read_text().splitlines():
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                cls = int(parts[0])
+                if class_map is not None:
+                    if cls not in class_map:
+                        continue
+                    cls = class_map[cls]
+                lines.append(f"{cls} " + " ".join(parts[1:5]))
+                n_kept += 1
+            (out_dir / split / "labels" / (txt_path.stem + ".txt")).write_text("\n".join(lines))
+        print(f"[emit-yolo:{split}] {len(items)} images, {n_kept} boxes -> {out_dir / split}")
+    data_yaml = {
+        "path": str(out_dir.resolve()),
+        "train": "train/images",
+        "val": "val/images" if "val" in split_names else "train/images",
+        "test": "test/images" if "test" in split_names else None,
+        "nc": 3,
+        "names": ["person", "helmet", "safety-vest"],
+    }
+    (out_dir / "data.yaml").write_text(
+        "\n".join(f"{k}: {v}" if v is not None else f"{k}:" for k, v in data_yaml.items())
+    )
+    print(f"[emit-yolo] data.yaml -> {out_dir / 'data.yaml'}")
+
+
 def build_split(items, split_name, dst, args):
     """Write one split: copy images + emit COCO-SG json."""
     split_dir = dst / split_name
@@ -150,7 +216,7 @@ def build_split(items, split_name, dst, args):
             "height": img_h,
         })
 
-        boxes = parse_yolo_labels(txt_path, img_w, img_h)
+        boxes = parse_yolo_labels(txt_path, img_w, img_h, args.class_map)
         obj_ids = []
         for b in boxes:
             annotations.append({
@@ -196,11 +262,11 @@ def build_split(items, split_name, dst, args):
 
 def collect_items(src: Path):
     """Return {split: [(img, txt), ...]} from either input layout."""
-    if (src / "train" / "images").is_dir():
+    if (src / "train" / "images").is_dir() or (src / "valid" / "images").is_dir():
         splits = {}
-        for split in ("train", "val", "test"):
-            img_dir = src / split / "images"
-            lbl_dir = src / split / "labels"
+        for split, alt in (("train", "train"), ("val", "valid"), ("test", "test")):
+            img_dir = src / alt / "images"
+            lbl_dir = src / alt / "labels"
             if img_dir.is_dir():
                 splits[split] = pair_images_labels(img_dir, lbl_dir)
         return splits
@@ -230,6 +296,13 @@ def main():
     ap.add_argument("--src", required=True, help="YOLO-format dataset root")
     ap.add_argument("--dst", default="datasets/SAFETY/coco_format",
                     help="Output directory (default: datasets/SAFETY/coco_format)")
+    ap.add_argument("--class-map", nargs="+", metavar="SRC:TARGET",
+                    help="Map source YOLO class ids to person/helmet/vest "
+                         "(e.g. 3:person 0:helmet 4:vest); unmapped classes are dropped. "
+                         "Default assumes src ids 0=person 1=helmet 2=vest.")
+    ap.add_argument("--emit-yolo", metavar="DIR", default=None,
+                    help="Also write a cleaned YOLO dataset + data.yaml (remapped "
+                         "classes) for ultralytics backbone fine-tuning")
     ap.add_argument("--helmet-contain", type=float, default=0.5,
                     help="Min containment ratio(helmet & person)/area(helmet) (default 0.5)")
     ap.add_argument("--vest-contain", type=float, default=0.6,
@@ -242,6 +315,7 @@ def main():
     args = ap.parse_args()
 
     src, dst = Path(args.src), Path(args.dst)
+    args.class_map = parse_class_map(args.class_map) if args.class_map else None
     items_by_split = collect_items(src)
 
     if "__pool__" in items_by_split:
@@ -253,6 +327,9 @@ def main():
         items_by_split["test"] = pool[:n_test]
         items_by_split["val"] = pool[n_test:n_test + n_val]
         items_by_split["train"] = pool[n_test + n_val:]
+
+    if args.emit_yolo:
+        emit_yolo(items_by_split, Path(args.emit_yolo), args.class_map)
 
     total = {"images": 0, "objects": 0, "relations": 0}
     for split in ("train", "val", "test"):

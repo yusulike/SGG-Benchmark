@@ -150,6 +150,19 @@ def main():
     checkpointer.load(checkpoint_path)
     model.eval()
 
+    # YOLO-World txt_feats (CLIP text embeddings of the class prompts) is a plain
+    # attribute, NOT part of the state dict, so loading the full SGG checkpoint
+    # leaves it at its random init (norm ~38 instead of ~1.7) and all class
+    # scores collapse to ~0.  Restore it from the backbone checkpoint the run
+    # was trained from (backbone weights there are identical).
+    bb_ckpt = getattr(cfg.model, 'pretrained_detector_ckpt', None)
+    if bb_ckpt and os.path.isfile(str(bb_ckpt)):
+        model.backbone.load(str(bb_ckpt))
+        print(f"Restored YOLO-World txt_feats from: {bb_ckpt}")
+    else:
+        print(f"Warning: pretrained_detector_ckpt {bb_ckpt!r} not found — "
+              f"YOLO-World class scores may be invalid for world backbones.")
+
     # ── Build sample input ────────────────────────────────────────────────────
     def _load_image_as_tensor(img_path: Path, device, target_size: int = 640):
         """Matches sgg_benchmark.data.transforms.transforms.LetterBox + ToTensorYOLO"""

@@ -182,15 +182,24 @@ class YoloWorldModel(WorldModel):
                 continue
 
             boxes = pred[:, :4]
-            boxes = ops.scale_boxes((self.input_h, self.input_w), boxes, (out_img_size[1], out_img_size[0]))
+            # boxes = ops.scale_boxes((self.input_h, self.input_w), boxes, (out_img_size[1], out_img_size[0]))
+            if not torch.onnx.is_in_onnx_export():
+                boxes = ops.scale_boxes(
+                    (self.input_h, self.input_w),
+                    boxes,
+                    (out_img_size[1], out_img_size[0])
+                )
+
 
             boxlist = {"boxes": boxes, "image_size": out_img_size, "mode": "xyxy"}
 
             scores = pred[:, 4]
-            labels = pred[:, 5].long()
-            boxlist["pred_labels"] = labels.detach().clone()
-            # add 1 to all labels to account for background class
-            labels += 1
+
+            # YOLO class IDs: 0-based
+            # SGG-Benchmark class IDs: 1-based (0 = background)
+            labels = pred[:, 5].long() + 1
+
+            boxlist["pred_labels"] = labels
             boxlist["pred_scores"] = scores
             boxlist["labels"] = labels
             boxlist["feat_idx"] = idx.long()

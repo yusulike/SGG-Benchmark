@@ -268,7 +268,7 @@ class GeneralizedYOLO(nn.Module):
         all_obj_scores = predictions['pred_scores']
         all_rel_pairs = predictions['rel_pair_idxs']
         all_rel_prob = predictions['pred_rel_scores']
-        
+
         from sgg_benchmark.structures.box_ops import box_convert
         all_boxes = box_convert(predictions['boxes'], predictions['mode'], 'xyxy')
 

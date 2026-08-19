@@ -9,7 +9,29 @@ original anchor axis of the prediction tensor (used downstream as `feat_idx`).
 """
 
 try:
-    from ultralytics.utils.nms import non_max_suppression  # noqa: F401
+    import torch
+
+    from ultralytics.utils.nms import non_max_suppression as _ultralytics_nms
+
+    def non_max_suppression(prediction, *args, return_idxs=False, **kwargs):
+        """Wrap the official NMS and normalize its return shapes.
+
+        ultralytics initializes empty keepi entries as (0, 1) tensors but stores
+        kept indices as flat (n,) tensors, so batches mixing empty and non-empty
+        images break downstream torch.cat on feat_idx. The end2end early-return
+        path also ignores return_idxs entirely; give it row indices there.
+        """
+        out = _ultralytics_nms(prediction, *args, return_idxs=return_idxs, **kwargs)
+        if not return_idxs:
+            return out
+        # prediction may be the (inference_out, loss_out) tuple of Detect.forward
+        device = (prediction[0] if isinstance(prediction, (list, tuple)) else prediction).device
+        if isinstance(out, tuple):
+            output, keepi = out
+        else:  # end2end input (prediction.shape[-1] == 6): rows are final detections
+            output, keepi = out, [torch.arange(len(pred)) for pred in out]
+        return output, [torch.as_tensor(k, device=device).reshape(-1) for k in keepi]
+
 except ImportError:
     import time
 

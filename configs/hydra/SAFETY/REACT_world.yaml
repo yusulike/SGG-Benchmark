@@ -1,0 +1,169 @@
+# @package _global_
+# REACT_world.yaml — Construction-site safety SGG (person / helmet / safety-vest, "wearing")
+# ════════════════════════════════════════════════════════════════════════════
+# Architecture : DAMP (Detection-Anchored Multi-Scale Pooling) + P5SceneContextExtractor
+# Backbone     : YOLO-World v2 (open-vocabulary, CLIP text prompts)
+# Text embedding: CLIP ViT-B/32 (no GloVe download needed)
+#
+# Dataset: SAFETY — 3 object classes (person, helmet, safety-vest), 1 relation (wearing)
+#   Violations are inferred from missing "wearing" edges on a person.
+#
+# Prerequisites:
+#   1. Build the dataset:   python process_data/build_safety_coco.py --src <yolo_fmt_dir>
+#   2. Prepare the backbone: python scripts/prepare_safety_world_backbone.py  (zero-shot vocab
+#      or fine-tune) -> checkpoints/BACKBONES/SAFETY/worldv2_backbone.pt
+
+output_dir: "./checkpoints/SAFETY/react_world"
+glove_dir: "datasets/"          # also used as cache dir for CLIP embeddings (clip_obj.pt)
+
+seed: 42
+metric_to_track: "mR"          # with a single predicate, mR and R coincide
+dtype: "float32"
+verbose: "INFO"
+
+input:
+  img_size: [640, 640]  # [W, H]
+  pixel_mean: [102.9801, 115.9465, 122.7717]
+  pixel_std: [1.0, 1.0, 1.0]
+  to_bgr255: true
+  flip_prob_train: 0.5
+  padding: true
+  brightness: 0.15
+  contrast: 0.15
+  saturation: 0.1
+  hue: 0.0
+  vertical_flip_prob_train: 0.0
+
+datasets:
+  name: "SAFETY"
+  type: "coco"
+  data_dir: "datasets/SAFETY/coco_format"
+
+dataloader:
+  num_workers: 8
+  size_divisibility: 32
+  aspect_ratio_grouping: true
+
+model:
+  relation_on: true
+  device: "cuda"
+  meta_architecture: "GeneralizedYOLO"
+  pretrained_detector_ckpt: "checkpoints/BACKBONES/SAFETY/worldv2_backbone.pt"
+  text_embedding: "clip"
+  box_head: false
+
+  backbone:
+    type: "yoloworld"
+    nms_thresh: 0.001
+    freeze: true
+    freeze_at: 10
+
+  yolo:
+    size: "yolov8x-worldv2"
+    out_channels: [320, 640, 640]  # P3/P4/P5 C2fAttn outputs (verified via
+                                     # scripts/prepare_safety_world_backbone.py --mode probe)
+
+  roi_box_head:
+    feature_extractor: "DAMPBoxFeatureExtractor"
+    feat_idx_multiscale: true
+    feat_idx_neighbors: 1
+    mlp_head_dim: 256
+    num_classes: 4            # person, helmet, safety-vest + background (auto-corrected from dataset)
+
+  roi_heads:
+    fg_iou_threshold: 0.4
+    nms: 0.5
+    detections_per_img: 100
+
+  roi_relation_head:
+    predictor: "REACTPlusPlusPredictor"
+    feature_extractor: "P5SceneContextExtractor"
+    use_scene_context: true
+
+    num_classes: 1            # "wearing" (auto-corrected from dataset)
+
+    mlp_head_dim: 512
+    embed_dim: 512            # CLIP ViT-B/32 output dim
+    context_dropout_rate: 0.2
+
+    use_union_features: true
+    use_union_features_inference: true
+    union_dropout: 0.0
+
+    max_pairs_inference: 0
+
+    batch_size_per_image: 512
+    positive_fraction: 0.35
+    num_sample_per_gt_rel: 8
+    require_box_overlap: false
+    add_gtbox_to_proposal_in_train: false
+
+    use_gt_box: false
+    use_gt_object_label: false
+
+    loss:
+      loss_type: "BalancedLogitAdjustedLoss"
+      logit_adjustment_tau: 0.5
+      gamma: 0.0
+      alpha: 0.15
+      fg_boost: 2.0
+      bg_discount: 0.3
+
+    use_frequency_bias: false
+
+    react_loss_weights:
+      l21_loss: 1.0
+      dist_loss2: 0.1
+      loss_dis: 0.5
+
+solver:
+  max_epoch: 20
+  base_lr: 1.0e-04
+  bias_lr_factor: 1
+  momentum: 0.9
+  weight_decay_bias: 0.0
+  gamma: 0.5
+  steps: [41000, 50000]
+  warmup_factor: 0.1
+  warmup_epochs: 2
+  warmup_method: "linear"
+  checkpoint_period: 250
+  grad_norm_clip: 1.0
+  accum_steps: 4
+  print_grad_freq: 250
+  pre_val: true
+  val_period: 250
+  ims_per_batch: 8
+  optimizer: "ADAMW"
+  muon_scaling: 0.2
+  adamw_scaling: 0.8
+  slow_ratio: 10.0
+  weight_decay: 0.05
+
+  schedule:
+    type: "WarmupCosineAnnealingIterLR"
+    eta_min: 5.0e-7
+
+test:
+  ims_per_batch: 1
+  detections_per_img: 100
+  informative: false
+
+  bbox_aug:
+    enabled: false
+    h_flip: false
+    scales: []
+    max_size: 4000
+    scale_h_flip: false
+
+  save_proposals: false
+
+  relation:
+    multiple_preds: false
+    iou_threshold: 0.5
+    require_overlap: false
+    later_nms_prediction_thres: 0.5
+    sync_gather: true
+
+  allow_load_from_cache: false
+  top_k: 100

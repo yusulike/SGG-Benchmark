@@ -164,6 +164,23 @@ class YoloWorldModel(WorldModel):
             # flip
             out_img_size = image_sizes[i]
 
+            if pred.shape[0] == 0:
+                # The relation sampler falls back to a dummy (0, 0) pair when an
+                # image yields no fg/bg relations, which indexes proposal 0 — so
+                # it cannot handle an empty proposal list. Emit one background
+                # box with score 0 instead (filtered out downstream).
+                w, h = float(out_img_size[1]), float(out_img_size[0])
+                results.append({
+                    "boxes": torch.tensor([[0.0, 0.0, w, h]], device=self.device),
+                    "image_size": out_img_size,
+                    "mode": "xyxy",
+                    "pred_labels": torch.tensor([0], device=self.device),
+                    "pred_scores": torch.tensor([0.0], device=self.device),
+                    "labels": torch.tensor([0], device=self.device),  # background
+                    "feat_idx": torch.zeros(1, dtype=torch.long, device=self.device),
+                })
+                continue
+
             boxes = pred[:, :4]
             boxes = ops.scale_boxes((self.input_h, self.input_w), boxes, (out_img_size[1], out_img_size[0]))
 

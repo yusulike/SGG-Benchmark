@@ -1,0 +1,165 @@
+# @package _global_
+# REACT_yolo12.yaml — Construction-site safety SGG with a plain YOLO12m backbone
+# ════════════════════════════════════════════════════════════════════════════
+# Same schema as REACT_world.yaml (person / helmet / safety-vest + "wearing"),
+# but with the closed-vocabulary YOLO12 detector instead of YOLO-World:
+# lighter (68 vs 274 GFLOPs), no txt_feats handling, PSG-proven path.
+#
+# Backbone: checkpoints/BACKBONES/SAFETY/yolo12m_backbone.pt
+# (fine-tuned with ultralytics on _data/safety-yolo, see train_custom_model.md §4)
+#
+# Variants:  yolo12n -> out_channels [64,128,256]    yolo12s -> [128,256,512]
+
+output_dir: "./checkpoints/SAFETY/react_yolo12"
+glove_dir: "datasets/"          # cache dir for CLIP embeddings (clip_obj.pt)
+
+seed: 42
+metric_to_track: "mR"           # with a single predicate, mR and R coincide
+dtype: "float32"
+verbose: "INFO"
+
+input:
+  img_size: [640, 640]  # [W, H]
+  pixel_mean: [102.9801, 115.9465, 122.7717]
+  pixel_std: [1.0, 1.0, 1.0]
+  to_bgr255: true
+  flip_prob_train: 0.5
+  padding: true
+  brightness: 0.15
+  contrast: 0.15
+  saturation: 0.1
+  hue: 0.0
+  vertical_flip_prob_train: 0.0
+
+datasets:
+  name: "SAFETY"
+  type: "coco"
+  data_dir: "datasets/SAFETY/coco_format"
+
+dataloader:
+  num_workers: 8
+  size_divisibility: 32
+  aspect_ratio_grouping: true
+
+model:
+  relation_on: true
+  device: "cuda"
+  meta_architecture: "GeneralizedYOLO"
+  pretrained_detector_ckpt: "checkpoints/BACKBONES/SAFETY/yolo12m_backbone.pt"
+  text_embedding: "clip"
+  box_head: false
+
+  backbone:
+    type: "yolo"
+    nms_thresh: 0.001
+    freeze: true
+    freeze_at: 10
+
+  yolo:
+    size: "yolo12m"
+    out_channels: [256, 512, 512]  # yolo12m P3/P4/P5 (same as PSG REACT++ yolo12m)
+
+  roi_box_head:
+    feature_extractor: "DAMPBoxFeatureExtractor"
+    feat_idx_multiscale: true
+    feat_idx_neighbors: 1
+    mlp_head_dim: 256
+    num_classes: 4            # person, helmet, safety-vest + background (auto-corrected from dataset)
+
+  roi_heads:
+    fg_iou_threshold: 0.4
+    nms: 0.5
+    detections_per_img: 100
+
+  roi_relation_head:
+    predictor: "REACTPlusPlusPredictor"
+    feature_extractor: "P5SceneContextExtractor"
+    use_scene_context: true
+
+    num_classes: 1            # "wearing" (auto-corrected from dataset)
+
+    mlp_head_dim: 512
+    embed_dim: 512            # CLIP ViT-B/32 output dim
+    context_dropout_rate: 0.2
+
+    use_union_features: true
+    use_union_features_inference: true
+    union_dropout: 0.0
+
+    max_pairs_inference: 0
+
+    batch_size_per_image: 512
+    positive_fraction: 0.35
+    num_sample_per_gt_rel: 8
+    require_box_overlap: false
+    add_gtbox_to_proposal_in_train: false
+
+    use_gt_box: false
+    use_gt_object_label: false
+
+    loss:
+      loss_type: "BalancedLogitAdjustedLoss"
+      logit_adjustment_tau: 0.5
+      gamma: 0.0
+      alpha: 0.15
+      fg_boost: 2.0
+      bg_discount: 0.3
+
+    use_frequency_bias: false
+
+    react_loss_weights:
+      l21_loss: 1.0
+      dist_loss2: 0.1
+      loss_dis: 0.5
+
+solver:
+  max_epoch: 20
+  base_lr: 1.0e-04
+  bias_lr_factor: 1
+  momentum: 0.9
+  weight_decay_bias: 0.0
+  gamma: 0.5
+  steps: [41000, 50000]
+  warmup_factor: 0.1
+  warmup_epochs: 2
+  warmup_method: "linear"
+  checkpoint_period: 250
+  grad_norm_clip: 1.0
+  accum_steps: 4
+  print_grad_freq: 250
+  pre_val: true
+  val_period: 250
+  ims_per_batch: 8
+  optimizer: "ADAMW"
+  muon_scaling: 0.2
+  adamw_scaling: 0.8
+  slow_ratio: 10.0
+  weight_decay: 0.05
+
+  schedule:
+    type: "WarmupCosineAnnealingIterLR"
+    eta_min: 5.0e-7
+
+test:
+  ims_per_batch: 1
+  detections_per_img: 100
+  informative: false
+
+  bbox_aug:
+    enabled: false
+    h_flip: false
+    scales: []
+    max_size: 4000
+    scale_h_flip: false
+
+  save_proposals: false
+
+  relation:
+    multiple_preds: false
+    iou_threshold: 0.5
+    require_overlap: false
+    later_nms_prediction_thres: 0.5
+    sync_gather: true
+
+  allow_load_from_cache: false
+  top_k: 100

@@ -222,6 +222,14 @@ If you want to use YoloV8/9/10/11/12 or Yolo-World as a backbone instead of Fast
 Once you have a model, you can modify [a config file](configs/hydra) and change the path `pretrained_detector_ckpt` to your model weights. Please note that you will also need to change the variable `yolo.size` and `yolo.out_channels` accordingly if you use another variant of YOLO (nano, small or large for instance). 
 For training an SGG model with YOLO as a backbone, you need to modify the `meta_architecture` variable in the same config file to `GeneralizedYOLO`. You can then follow the standard procedure for training below.
 
+### Custom-domain models (new)
+
+For a complete, verified end-to-end walkthrough of building an SGG model on **your own
+domain** — data collection, geometric relation synthesis, YOLO-World backbone
+fine-tuning, training, evaluation and ONNX deployment (worked example: construction-site
+safety with `person / helmet / safety-vest` and a `wearing` relation, reaching
+R@100 0.98) — see **[train_custom_model.md](train_custom_model.md)**.
+
 ## Faster R-CNN pre-training (legacy)
 
 We do not support Faster-RCNN pre-training anymore.

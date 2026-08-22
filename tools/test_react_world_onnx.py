@@ -1,10 +1,8 @@
+import argparse
+
 import cv2
 import numpy as np
 import onnxruntime as ort
-
-
-ONNX_PATH = "checkpoints/SAFETY/react_world/react_world.onnx"
-IMAGE_PATH = r"E:\myWork\myYolo\test.jpg"
 
 
 def letterbox(image, size=640):
@@ -61,7 +59,6 @@ def preprocess(image):
 
     return image
 
-import argparse
 
 def main():
     parser = argparse.ArgumentParser()
@@ -86,12 +83,13 @@ def main():
 
     print("Loading ONNX...")
 
+    providers = [args.provider]
+    if "CPUExecutionProvider" not in providers:
+        providers.append("CPUExecutionProvider")
+
     session = ort.InferenceSession(
         args.onnx,
-        providers=[
-            "CUDAExecutionProvider",
-            "CPUExecutionProvider",
-        ],
+        providers=providers,
     )
 
     print("Providers:")

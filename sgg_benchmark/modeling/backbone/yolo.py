@@ -5,7 +5,10 @@ from ultralytics.nn.tasks import DetectionModel
 from ultralytics.nn.tasks import DetectionModel
 from ultralytics.utils.patches import torch_load
 
-from ultralytics.utils.plotting import feature_visualization
+try:
+    from ultralytics.utils.plotting import feature_visualization
+except ImportError:  # removed in ultralytics >= 8.4 — identical local copy
+    from .utils import feature_visualization
 from .yolo_nms import non_max_suppression
 from pathlib import Path
 from omegaconf import DictConfig

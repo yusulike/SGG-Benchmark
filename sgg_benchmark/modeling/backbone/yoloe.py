@@ -4,7 +4,10 @@ from ultralytics.nn.modules import YOLOESegment
 
 from ultralytics.utils.patches import torch_load
 from ultralytics.utils import ops
-from ultralytics.utils.plotting import feature_visualization
+try:
+    from ultralytics.utils.plotting import feature_visualization
+except ImportError:  # removed in ultralytics >= 8.4 — identical local copy
+    from .utils import feature_visualization
 from .yolo_nms import non_max_suppression
 from pathlib import Path
 

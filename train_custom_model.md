@@ -4,6 +4,8 @@ This guide documents a **verified end-to-end pipeline** for building a scene-gra
 model on your own domain, using a YOLO-World open-vocabulary backbone. The running
 example is **construction-site safety** (objects: `person`, `helmet`, `safety-vest`;
 relation: `wearing`) but every step generalizes to any small closed vocabulary.
+A closed-vocabulary YOLO12 variant of this guide (with a measured comparison against
+this YOLO-World path) is available in [train_custom_model_yolo12.md](train_custom_model_yolo12.md).
 
 Everything below was executed and measured on this repository; final results of the
 example run:
@@ -11,8 +13,17 @@ example run:
 | Stage | Metric | Value |
 |---|---|---|
 | Backbone fine-tune (ultralytics, val) | detection mAP50 | **0.952** |
-| SGG evaluation (test split, sgdet) | detection mAP@0.5 | **0.915** |
-| SGG evaluation (test split, sgdet) | R@20 / R@100 (`wearing`) | **0.951 / 0.981** |
+| SGG evaluation (test split, sgdet) | detection mAP@0.5 | **0.908** |
+| SGG evaluation (test split, sgdet) | R@20 / R@100 (`wearing`) | **0.935 / 0.980** |
+
+> SGG figures are measured on the **regenerated** dataset (9,761 `wearing`
+> edges — one helmet **and** one vest per person, §3). On the original
+> single-edge synthesis (6,641 edges) the same pipeline scored test R@100
+> 0.9806.
+
+> Commands use `uv run` from the repo root — the root `pyproject.toml` now
+> declares the full environment (torch cu121, ultralytics, hydra, ...), so a
+> one-time `uv sync` is all the setup you need (see INSTALL.md).
 
 Pipeline overview:
 
@@ -74,7 +85,7 @@ for attempt in range(10):
         p = snapshot_download(
             repo_id="VincentGOURBIN/ppe-detection",
             repo_type="dataset",
-            local_dir="E:/myWork/myYolo/_data/ppe-detection",
+            local_dir="datasets/SAFETY/ppe-detection",
             max_workers=4,
         )
         break
@@ -93,10 +104,10 @@ dropped — e.g. the negative markers `no-helmet`/`no-vest`), synthesizes `weari
 relations, and optionally emits a cleaned YOLO dataset for backbone fine-tuning:
 
 ```powershell
-E:\myWork\myYolo\.venv\Scripts\python.exe process_data/build_safety_coco.py `
-    --src E:/myWork/myYolo/_data/ppe-detection `
+uv run python process_data/build_safety_coco.py `
+    --src datasets/SAFETY/ppe-detection `
     --class-map 3:person 0:helmet 4:vest `
-    --emit-yolo E:/myWork/myYolo/_data/safety-yolo
+    --emit-yolo datasets/SAFETY/safety-yolo
 ```
 
 Relation synthesis rules (tunable via `--helmet-contain 0.5 --vest-contain 0.6
@@ -106,14 +117,17 @@ Relation synthesis rules (tunable via `--helmet-contain 0.5 --vest-contain 0.6
   is assigned to the person with the highest containment
   `area(helmet ∩ person) / area(helmet)` above the threshold;
 - **vest → person**: same containment rule without expansion;
-- each equipment box is assigned to **at most one** person (greedy, best score first).
+- each equipment box is assigned to **at most one** person, and each person to
+  at most **one helmet and one vest** (greedy, best containment first) — a person
+  wearing both keeps both `wearing` edges, so violation inference (§9) can check
+  helmet and vest compliance independently.
 
 Example-run output:
 
 ```
-[train] 3447 images, 17249 objects, 6156 relations
-[val]    164 images,   867 objects,  305 relations
-[test]   101 images,   523 objects,  180 relations
+[train] 3447 images, 17249 objects, 9045 relations
+[val]    164 images,   867 objects,  452 relations
+[test]   101 images,   523 objects,  264 relations
 ```
 
 Outputs land in `datasets/SAFETY/coco_format/{train,val,test}/_annotations.coco.json`
@@ -126,15 +140,15 @@ Three modes:
 
 ```powershell
 # a) probe: verify feature channels for yolo.out_channels in the config (no weights)
-python scripts/prepare_safety_world_backbone.py --mode probe
+uv run python scripts/prepare_safety_world_backbone.py --mode probe
 #    -> yolov8x-worldv2 feature layers {15,18,21} = [320, 640, 640]
 
 # b) zero-shot: official weights re-prompted with your vocabulary (bootstrap only)
-python scripts/prepare_safety_world_backbone.py --mode zero-shot
+uv run python scripts/prepare_safety_world_backbone.py --mode zero-shot
 
 # c) fine-tune (recommended): ultralytics training on the cleaned YOLO data
-python scripts/prepare_safety_world_backbone.py --mode fine-tune `
-    --data E:/myWork/myYolo/_data/safety-yolo/data.yaml --epochs 10 --batch 12
+uv run python scripts/prepare_safety_world_backbone.py --mode fine-tune `
+    --data datasets/SAFETY/safety-yolo/data.yaml --epochs 10 --batch 12
 ```
 
 The fine-tuned backbone is saved to
@@ -175,7 +189,7 @@ model:
 ## 6. Training
 
 ```powershell
-E:\myWork\myYolo\.venv\Scripts\python.exe tools/relation_train_net_hydra.py `
+uv run python tools/relation_train_net_hydra.py `
     --config-name SAFETY/REACT_world --task sgdet solver.max_epoch=10 solver.ims_per_batch=4
 ```
 
@@ -187,7 +201,7 @@ E:\myWork\myYolo\.venv\Scripts\python.exe tools/relation_train_net_hydra.py `
 ## 7. Evaluation
 
 ```powershell
-E:\myWork\myYolo\.venv\Scripts\python.exe tools/relation_eval_hydra.py `
+uv run python tools/relation_eval_hydra.py `
     --run-dir checkpoints/SAFETY/react_world --task sgdet
 ```
 
@@ -195,22 +209,22 @@ Auto-discovers the newest `model_epoch_*.pth` and the config in the run dir (or 
 `--checkpoint`/`--config-file` explicitly). Example output:
 
 ```
-Detection evaluation mAp=0.9150
-SGG eval: R @ 20: 0.9507;  R @ 50: 0.9785;  R @ 100: 0.9806  for mode=sgdet.
-(wearing:0.9806)
+Detection evaluation mAp=0.9079
+SGG eval: R @ 20: 0.9345;  R @ 50: 0.9685;  R @ 100: 0.9799  for mode=sgdet.
+(wearing:0.9799)
 ```
 
 ## 8. ONNX export & deployment
 
 ```powershell
 # export (restores YOLO-World txt_feats from the backbone file automatically)
-E:\myWork\myYolo\.venv\Scripts\python.exe tools/export_onnx.py `
+uv run python tools/export_onnx.py `
     --run-dir checkpoints/SAFETY/react_world `
     --image datasets/SAFETY/coco_format/test/test_000030.jpg `
     --onnx-path checkpoints/SAFETY/react_world/react_world.onnx
 
 # smoke test
-E:\myWork\myYolo\.venv\Scripts\python.exe tools/test_react_world_onnx.py `
+uv run python tools/test_react_world_onnx.py `
     --onnx checkpoints/SAFETY/react_world/react_world.onnx --source <image>
 ```
 
@@ -247,7 +261,7 @@ violators = [i for i in range(len(boxes))
 | 4 | Exported ONNX: all class scores ≈ 0 | YOLO-World `txt_feats` is a plain attribute, **not** in state dicts; exporting from a full SGG checkpoint left it at random init. `export_onnx.py` now restores it from the backbone file — keep that file next to your run. |
 | 5 | Crash on images with zero detections (`IndexError` in the sampler / `torch.cat` on `feat_idx`) | The sampler's dummy pair indexes proposal 0. Backbones now emit one background box (score 0) for empty images, and the NMS shim normalizes `keepi` shapes. |
 | 6 | HF download dies with HTTP 429 on `xet-read-token` | `HF_HUB_DISABLE_XET=1` + authenticated token + retry loop (§2). |
-| 7 | `uv run` cannot find `torch` | A `pyproject.toml` in the repo root makes uv resolve a *new* project env. Either remove it / move it to a subfolder, or call the venv interpreter directly (`E:\myWork\myYolo\.venv\Scripts\python.exe`) as in the commands above. |
+| 7 | `uv run` cannot find `torch` | The repo-root `pyproject.toml` used to declare only the serving-app deps, so uv resolved an env without torch. **Fixed:** it now declares the full SGG dependency set (torch pinned to the cu121 wheel index) — run `uv sync` once and use `uv run python ...`. |
 
 ## 11. Dataset license
 

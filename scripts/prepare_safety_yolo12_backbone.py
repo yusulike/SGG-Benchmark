@@ -14,7 +14,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--size", default="yolo12m", help="yolo12n / yolo12s / yolo12m / yolo12l")
-    ap.add_argument("--data", default="E:/myWork/myYolo/_data/safety-yolo/data.yaml")
+    ap.add_argument("--data", default="datasets/SAFETY/safety-yolo/data.yaml")
     ap.add_argument("--out", default=None,
                     help="default: checkpoints/BACKBONES/SAFETY/<size>_backbone.pt")
     ap.add_argument("--epochs", type=int, default=30)

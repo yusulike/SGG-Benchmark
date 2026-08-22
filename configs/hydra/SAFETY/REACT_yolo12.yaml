@@ -6,7 +6,7 @@
 # lighter (68 vs 274 GFLOPs), no txt_feats handling, PSG-proven path.
 #
 # Backbone: checkpoints/BACKBONES/SAFETY/yolo12m_backbone.pt
-# (fine-tuned with ultralytics on _data/safety-yolo, see train_custom_model.md §4)
+# (fine-tuned with ultralytics on datasets/SAFETY/safety-yolo, see train_custom_model_yolo12.md §2)
 #
 # Variants:  yolo12n -> out_channels [64,128,256]    yolo12s -> [128,256,512]
 

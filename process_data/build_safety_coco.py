@@ -7,8 +7,9 @@ training pipeline, synthesizing "wearing" relations geometrically:
     helmet  -> person with the highest containment  ratio(helmet & person) / area(helmet)
     vest    -> person with the highest containment  ratio(vest   & person) / area(vest)
 
-Each equipment object is assigned to at most one person (greedy, best score
-first); a person with no assigned helmet/vest is a potential violation case.
+Each equipment object is assigned to at most one person, and each person to at
+most one helmet and one vest (greedy, best containment first); a person with no
+assigned helmet/vest is a potential violation case.
 
 Input layout (either):
     A) <src>/images/*.jpg + <src>/labels/*.txt          (single pool, random split)
@@ -108,6 +109,10 @@ def contain_ratio(inner, outer):
 def synthesize_relations(boxes, helmet_min=0.5, vest_min=0.6, head_expand=0.05):
     """Assign each helmet/vest to the best-matching person.
 
+    Each equipment box matches at most one person, and each person receives at
+    most one helmet and one vest — never two of the same type, but a person
+    wearing both keeps both edges.
+
     `head_expand` grows the person box upwards before matching helmets, since
     helmet boxes often sit at or slightly above the annotated person's head.
     Returns a list of (subject_idx, obj_idx) pairs into `boxes`.
@@ -138,14 +143,19 @@ def synthesize_relations(boxes, helmet_min=0.5, vest_min=0.6, head_expand=0.05):
             if score >= thr:
                 candidates.append((score, i, p))
 
-    # greedy one-to-one assignment, best score first
+    # greedy assignment, best score first: each equipment box goes to at most
+    # one person, and each person gets at most one helmet AND one vest. A
+    # person wearing both must keep both edges — keeping only the best-scoring
+    # one would teach the model to drop the other, and violation inference
+    # (train_custom_model.md §9) would flag that person as non-compliant.
     candidates.sort(reverse=True)
-    used_persons, used_equip, pairs = set(), set(), []
+    used_equip, used_slots, pairs = set(), set(), []
     for score, i, p in candidates:
-        if i in used_equip or p in used_persons:
+        slot = (p, boxes[i]["cls"])
+        if i in used_equip or slot in used_slots:
             continue
         used_equip.add(i)
-        used_persons.add(p)
+        used_slots.add(slot)
         pairs.append((p, i))  # (person, equipment) -> subject, object
     return pairs
 
@@ -179,7 +189,11 @@ def emit_yolo(items_by_split, out_dir: Path, class_map):
             (out_dir / split / "labels" / (txt_path.stem + ".txt")).write_text("\n".join(lines))
         print(f"[emit-yolo:{split}] {len(items)} images, {n_kept} boxes -> {out_dir / split}")
     data_yaml = {
-        "path": str(out_dir.resolve()),
+        # ultralytics resolves a relative path against the process CWD, not the
+        # yaml location — emit the path exactly as passed (--emit-yolo is a
+        # repo-relative path in the documented workflow) so it stays portable
+        # across machines instead of pinning an absolute disk location.
+        "path": str(out_dir),
         "train": "train/images",
         "val": "val/images" if "val" in split_names else "train/images",
         "test": "test/images" if "test" in split_names else None,

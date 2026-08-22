@@ -1,14 +1,62 @@
 [project]
-name = "mysg"
+name = "sgg-benchmark"
 version = "0.1.0"
-description = "Add your description here"
+description = "SGG-Benchmark (REACT/REACT++) with construction-safety SGG extensions"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
-    "gstreamer-bundle==1.28.0",
+    # ── core SGG training / evaluation ─────────────────────────────────────
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "ultralytics>=8.3.100",   # >=8.3.100: YOLO12/YOLOE support (see requirements.txt note)
+    "clip",                   # ultralytics CLIP fork, required by text_embedding: "clip"
+    "sentence-transformers",
+    "hydra-core>=1.3.0",
+    "omegaconf>=2.3.0",
+    "rich>=10.0.0",
+    "colorlog>=6.0.0",
+    "loguru",
+    "wandb",
+    "matplotlib",
+    "seaborn",
+    "pandas",
+    "scipy",
+    "tqdm",
+    "pycocotools",
+    "h5py",
+    "networkx",
+    "dill",
+    "calflops",
+    "datasets",
+    "huggingface_hub",
+    "pillow",
+    # ── ONNX export / inference ────────────────────────────────────────────
+    "onnx",
     "onnxruntime-gpu==1.25.0",
+    # ── serving / streaming app ────────────────────────────────────────────
     "opencv-python>=5.0.0.93",
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "websockets>=13.0",
+    "gstreamer-bundle==1.28.0",
+    # NOTE: torchtext (requirements.txt) is only used by the optional
+    # image_retrieval feature and has no Python>=3.12 wheels — install it
+    # separately (`uv pip install torchtext==0.18.0`) on Python 3.11 if needed.
 ]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true  # editable-install sgg_benchmark into .venv — tools/ scripts import it before their sys.path bootstrap
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+clip = { git = "https://github.com/ultralytics/CLIP.git" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true

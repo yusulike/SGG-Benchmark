@@ -3,53 +3,58 @@
 This project supports a fast, reproducible install using `uv` and a local `.venv`.
 
 Prerequisites
-- Python 3.8+ (3.11 recommended)
+- Python 3.11+ (3.12 tested)
 - System NVIDIA drivers and CUDA runtime if you plan to use GPU acceleration
 
-Overview
-- Use `./scripts/install_uv.sh` to create a local `.venv`, install pure-Python dependencies, and provide guidance for GPU packages.
-- We purposely do not pin platform-dependent packages like `torch` or `tensorrt` in the project lockfile — see the Lockfile section.
+Quick install
 
-Quick install (one-liner)
+The root `pyproject.toml` defines the **full** environment — including GPU
+`torch`/`torchvision` from the CUDA 12.1 wheel index and the Ultralytics CLIP
+fork — so a single sync is enough:
 
 ```bash
-chmod +x scripts/install_uv.sh
-./scripts/install_uv.sh
+# install uv if missing: https://docs.astral.sh/uv/getting-started/installation/
+uv sync
 ```
 
-What the installer does
-- Installs `uv` if missing and creates `.venv` with Python 3.11.
-- Installs `torch>=2.0` and `torchvision>=0.15` (letting `uv` pick the best wheel for your platform).
-- Installs the pure-Python dependencies in `requirements.txt`.
-- Installs Ultralytics CLIP, ONNX tooling, and attempts `onnxruntime-gpu` (falls back to CPU `onnxruntime`).
-- Attempts to install `tensorrt` via `pip` and prints manual install instructions if that fails.
+Then run everything through `uv run`:
+
+```bash
+uv run python tools/relation_train_net_hydra.py ...
+```
+
+or activate the environment first (`source .venv/bin/activate`, or
+`.venv\Scripts\activate` on Windows) and call `python` directly.
+
+What `uv sync` does
+- Creates `.venv` (Python >= 3.11) if missing and installs every dependency from the root `uv.lock`, `torch 2.5.1+cu121` included.
+- Installs the `sgg_benchmark` package itself in editable mode — required because some `tools/` scripts import it before their own `sys.path` bootstrap.
+- Also installs the serving/streaming dependencies (`fastapi`, `uvicorn`, `gstreamer-bundle`); they are harmless if you do not use them.
+- TensorRT is **not** included (platform-specific wheels) — see below.
+- `torchtext` is **not** included: it only serves the optional `image_retrieval` feature and has no Python >= 3.12 wheels. On Python 3.11, `uv pip install torchtext==0.18.0` if you need it.
 
 Note on Ultralytics
 - Use the **official** [ultralytics](https://github.com/ultralytics/ultralytics) package (`>=8.3.100`, see `requirements.txt`).
 - Community YOLO12 forks (e.g. [`sunsmarterjie/yolov12`](https://github.com/sunsmarterjie/yolov12), pinned at 8.3.63) are **not compatible**: they lack YOLOE backbones, use different model YAML names (`yolov12.yaml` instead of `yolo12m.yaml`), and miss NMS APIs the codebase relies on.
 
-Activating the environment
-
-```bash
-source .venv/bin/activate
-# or run commands without activating with uv run:
-uv run python tools/relation_train_net_hydra.py ...
-```
-
 PyTorch / CUDA / TensorRT guidance
 - We require `torch>=2.0` for optimized SDPA / `torch.scaled_dot_product_attention` and `torch.compile` compatibility.
-- Wheels for `torch` are CUDA- and platform-specific. If you need a particular CUDA build (e.g. cu121), install it explicitly after running the installer:
+- The lockfile pins `torch` from the `pytorch-cu121` index via `[[tool.uv.index]]` in `pyproject.toml`. To switch CUDA builds, change that index (e.g. `cu124`) and re-lock:
 
 ```bash
-# Example for CUDA 12.1 (replace with the wheel appropriate for your GPU)
-uv run pip install --index-url https://download.pytorch.org/whl/cu121 "torch>=2.0" "torchvision>=0.15"
+uv lock && uv sync
 ```
 
-- TensorRT Python bindings are often provided by the NVIDIA package repositories or prebuilt wheels tied to a specific platform. The installer will attempt `uv run pip install tensorrt` and otherwise shows a link to NVIDIA's install guide.
+- TensorRT Python bindings are often provided by the NVIDIA package repositories or prebuilt wheels tied to a specific platform: follow NVIDIA's install guide, then run `scripts/setup_cuda_libs.sh` to expose vendor libraries.
 
 ONNX and ONNX Runtime
-- The repo contains `tools/export_onnx.py` and `demo/onnx_model.py`. The installer installs `onnx`, `onnx-simplifier`, and attempts `onnxruntime-gpu` with CPU fallback.
-- If you need maximum performance with TensorRT, follow NVIDIA's TensorRT instructions and then run `scripts/setup_cuda_libs.sh` to expose vendor libraries.
+- The environment includes `onnx` and `onnxruntime-gpu` (CPU `onnxruntime` can be swapped in on machines without GPU support).
+- For maximum performance with TensorRT, follow NVIDIA's TensorRT instructions and then run `scripts/setup_cuda_libs.sh` to expose vendor libraries.
+
+## Legacy alternatives
+
+- `./scripts/install_uv.sh` still works: it creates `.venv` and `uv pip install`s `requirements.txt` piece by piece instead of using the project lockfile. Prefer `uv sync`.
+- To reproduce the *upstream author's* exact environment, see `scripts/uv.lock` below.
 
 ## Reproducing the full environment using the provided `scripts/uv.lock` (exact pinned versions)
 

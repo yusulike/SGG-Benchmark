@@ -3,14 +3,8 @@
 from setuptools import find_packages
 from setuptools import setup
 
-requirements = ["torch", "torchvision"]
-
+# Name, version and dependencies live in pyproject.toml ([project]); this file
+# only pins the flat-layout package discovery for the editable install.
 setup(
-    name="sgg_benchmark",
-    version="2.0.0",
-    author="maelicneau",
-    author_email="teoneau@gmail.com",
-    description="Real-Time Scene Graph Generation Benchmark",
-    packages=find_packages(exclude=("configs", "tests",)),
-    install_requires=requirements,
+    packages=find_packages(exclude=("configs", "tests", "tools", "demo")),
 )

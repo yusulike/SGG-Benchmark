@@ -33,10 +33,10 @@ python demo/standalone_onnx_demo.py \
 
 1. Install
 ```bash
-chmod +x scripts/install_uv.sh
-./scripts/install_uv.sh
-source .venv/bin/activate
+# with uv (https://docs.astral.sh/uv/): creates .venv with all dependencies, GPU torch included
+uv sync
 ```
+See [INSTALL.md](docs/INSTALL.md) for details (including the legacy `scripts/install_uv.sh` installer).
 
 2. Pick a model from [MODEL_ZOO.md](docs/MODEL_ZOO.md) and download it using 🤗 huggingface:
 ```bash
@@ -229,6 +229,9 @@ domain** — data collection, geometric relation synthesis, YOLO-World backbone
 fine-tuning, training, evaluation and ONNX deployment (worked example: construction-site
 safety with `person / helmet / safety-vest` and a `wearing` relation, reaching
 R@100 0.98) — see **[train_custom_model.md](train_custom_model.md)**.
+A **closed-vocabulary YOLO12** variant of the same walkthrough (much lighter backbone,
+no CLIP vocabulary handling, measured comparison against YOLO-World) is available in
+**[train_custom_model_yolo12.md](train_custom_model_yolo12.md)**.
 
 ## Faster R-CNN pre-training (legacy)
 

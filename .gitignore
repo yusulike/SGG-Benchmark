@@ -25,6 +25,7 @@ wandb/
 !/datasets/psg/obj_classes.txt
 *.jpeg
 *.npy
+_data/
 
 # Editor temporaries
 *.swn

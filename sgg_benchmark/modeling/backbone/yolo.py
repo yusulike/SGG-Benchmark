@@ -5,7 +5,7 @@ from ultralytics.nn.tasks import DetectionModel
 from ultralytics.nn.tasks import DetectionModel
 from ultralytics.utils.patches import torch_load
 
-from ultralytics.utils.plotting import feature_visualization
+from .utils import feature_visualization  # ultralytics >= 8.4 dropped theirs
 from .yolo_nms import non_max_suppression
 from pathlib import Path
 from omegaconf import DictConfig

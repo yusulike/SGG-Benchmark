@@ -4,7 +4,7 @@ from ultralytics.nn.modules import YOLOESegment
 
 from ultralytics.utils.patches import torch_load
 from ultralytics.utils import ops
-from ultralytics.utils.plotting import feature_visualization
+from .utils import feature_visualization  # ultralytics >= 8.4 dropped theirs
 from .yolo_nms import non_max_suppression
 from pathlib import Path
 

@@ -66,13 +66,21 @@ else:
 
 def ask(prompt, default=None):
     suffix = f" [{default}]" if default not in (None, "") else ""
-    val = input(f"{prompt}{suffix}: ").strip()
+    try:
+        val = input(f"{prompt}{suffix}: ").strip()
+    except EOFError:
+        die("stdin is closed - run a stage non-interactively instead, "
+            "e.g. --stage status or --stage all --yes")
     return val or (str(default) if default is not None else "")
 
 
 def confirm(prompt, default=True):
     suffix = " [Y/n]" if default else " [y/N]"
-    val = input(f"{prompt}{suffix}: ").strip().lower()
+    try:
+        val = input(f"{prompt}{suffix}: ").strip().lower()
+    except EOFError:
+        die("stdin is closed - run a stage non-interactively instead, "
+            "e.g. --stage status or --stage all --yes")
     if not val:
         return default
     return val in ("y", "yes")
@@ -291,15 +299,18 @@ def menu():
 
 
 def ensure_venv_hop():
-    """If the current interpreter lacks deps but .venv-sgg has them, re-exec there."""
+    """If the current interpreter lacks deps but .venv-sgg has them, delegate there.
+
+    Uses subprocess instead of os.execv: on Windows, exec-replacing a process
+    spawned by uv/cmd can lose the console stdin handle, which kills input()
+    prompts (the menu dies and keystrokes leak into the parent shell).
+    """
     if interpreter_ready():
         return
     if VPY.exists() and interpreter_ready(VPY):
         print(f"switching to repo venv: {VPY}")
-        try:
-            os.execv(str(VPY), [str(VPY), str(Path(__file__).resolve()), *sys.argv[1:]])
-        except OSError:
-            sys.exit(subprocess.run([VPY, Path(__file__).resolve(), *sys.argv[1:]]).returncode)
+        sys.exit(subprocess.run(
+            [str(VPY), str(Path(__file__).resolve()), *sys.argv[1:]]).returncode)
 
 
 def parse_args():

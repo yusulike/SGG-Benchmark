@@ -5,6 +5,26 @@
 ![PyTorch](https://img.shields.io/badge/pytorch-2.2.1-%237732a8)
 [![arXiv](https://img.shields.io/badge/arXiv-2405.16116-b31b1b.svg)](https://arxiv.org/abs/2603.06386)
 
+## Custom-Domain SGG — Interactive Pipeline (safety / YOLO12)
+
+Train a scene-graph model on your own domain (running example: construction-site
+safety, `person / helmet / safety-vest` + `wearing`, YOLO12m backbone) with a
+single interactive runner:
+
+```bash
+# stage menu with status + smart resume; auto-switches into .venv-sgg once set up
+python scripts/safety_pipeline.py
+# hands-free end-to-end (skips stages whose outputs already exist)
+python scripts/safety_pipeline.py --stage all --yes
+# single stage with overrides
+python scripts/safety_pipeline.py --stage backbone --size yolo12m --epochs 30 --yes
+python scripts/safety_pipeline.py --stage train --train-epochs 20 --ims 8
+```
+
+Stages: venv setup (uv) → dataset download (HuggingFace) → COCO-SG conversion →
+backbone fine-tune → SGG training → evaluation → ONNX export + smoke test.
+Full walkthrough, metrics and troubleshooting: [train_custom_model.md](train_custom_model.md).
+
 ## [Under Review] Code for the paper [REACT++: Efficient Cross-Attention for Real-Time Scene Graph Generation](https://arxiv.org/abs/2603.06386)
 
 ## [BMVC 2025] Code for the paper [REACT: Real-time Efficiency and Accuracy Compromise for Tradeoffs in Scene Graph Generation](https://arxiv.org/abs/2405.16116)

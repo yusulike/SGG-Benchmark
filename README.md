@@ -5,6 +5,60 @@
 ![PyTorch](https://img.shields.io/badge/pytorch-2.2.1-%237732a8)
 [![arXiv](https://img.shields.io/badge/arXiv-2405.16116-b31b1b.svg)](https://arxiv.org/abs/2603.06386)
 
+## Custom-Domain SGG — Interactive Pipeline (safety / YOLO12)
+
+Train a scene-graph model on your own domain (running example: construction-site
+safety, `person / helmet / safety-vest` + `wearing`, YOLO12m backbone) with a
+single interactive runner.
+
+### From a fresh machine (only git required)
+
+`uv` is the sole prerequisite — it manages Python itself, so no interpreter
+needs to be pre-installed:
+
+```bash
+# 1) install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh            # macOS / Linux
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+
+# 2) clone
+git clone https://github.com/yusulike/SGG-Benchmark.git && cd SGG-Benchmark
+
+# 3) build the training env — .venv-sgg (Python 3.12 + torch + requirements + CLIP + onnx)
+uv run --no-project scripts/safety_pipeline.py --stage setup
+
+# 4) run the whole pipeline — auto-switches into .venv-sgg once setup is done
+uv run --no-project scripts/safety_pipeline.py --stage all --yes
+```
+
+- `--stage setup` asks for the torch wheel index: keep the default
+  (`.../cu128`) on recent NVIDIA GPUs, answer `https://download.pytorch.org/whl/cpu`
+  on CPU-only machines.
+- Datasets and checkpoints are gitignored — a fresh clone contains code only;
+  `--stage all` rebuilds everything (backbone ~35 min + SGG training ~40 min on
+  a desktop GPU; training is impractical on CPU).
+- First runs additionally download the HF dataset (~120 MB), `yolo12m.pt`
+  COCO-pretrained weights and CLIP ViT-B/32 — all automatic.
+
+### Day-to-day usage
+
+```bash
+# interactive stage menu: status, smart resume, per-stage prompts
+uv run --no-project scripts/safety_pipeline.py
+# or invoke the repo venv directly (plain `python` also works after activating it)
+.venv-sgg/Scripts/python.exe scripts/safety_pipeline.py     # Windows
+.venv-sgg/bin/python scripts/safety_pipeline.py             # Linux / macOS
+# hands-free end-to-end (skips stages whose outputs already exist; --force to redo)
+<python> scripts/safety_pipeline.py --stage all --yes
+# single stage with overrides
+<python> scripts/safety_pipeline.py --stage backbone --size yolo12m --epochs 30 --yes
+<python> scripts/safety_pipeline.py --stage train --train-epochs 20 --ims 8
+```
+
+Stages: venv setup (uv) → dataset download (HuggingFace) → COCO-SG conversion →
+backbone fine-tune → SGG training → evaluation → ONNX export + smoke test.
+Full walkthrough, metrics and troubleshooting: [train_custom_model.md](train_custom_model.md).
+
 ## [Under Review] Code for the paper [REACT++: Efficient Cross-Attention for Real-Time Scene Graph Generation](https://arxiv.org/abs/2603.06386)
 
 ## [BMVC 2025] Code for the paper [REACT: Real-time Efficiency and Accuracy Compromise for Tradeoffs in Scene Graph Generation](https://arxiv.org/abs/2405.16116)
